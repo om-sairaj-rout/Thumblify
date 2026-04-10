@@ -63,7 +63,7 @@ export const generateThumbnail = async (req: Request, res: Response) => {
       isGenerating: true,
     });
 
-    const model = "gemini-2.0-flash-preview-image-generation";
+    const model = "gemini-2.0-flash-exp";
 
     const generationConfig: GenerateContentConfig = {
       maxOutputTokens: 32768,
