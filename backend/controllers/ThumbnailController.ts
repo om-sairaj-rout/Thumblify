@@ -1,11 +1,5 @@
 import { Request, Response } from "express";
 import Thumbnail from "../models/Thumbnail.js";
-import {
-  GenerateContentConfig,
-  HarmBlockThreshold,
-  HarmCategory,
-} from "@google/genai";
-import ai from "../configs/ai.js";
 import { v2 as cloudinary } from "cloudinary";
 
 const stylePrompts = {
@@ -39,6 +33,80 @@ const colorSchemeDescriptions = {
     "soft pastel colors, low saturation, gentle tones, calm and friendly aesthetic",
 };
 
+// Hugging Face free image generation function
+const generateImageWithHuggingFace = async (prompt: string): Promise<Buffer> => {
+  const HF_TOKEN = process.env.HF_TOKEN;
+
+  if (!HF_TOKEN) {
+    throw new Error("HF_TOKEN is not set in environment variables");
+  }
+
+  // Using FLUX.1-dev — best free image generation model on Hugging Face
+  const response = await fetch(
+    "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inputs: prompt,
+        parameters: {
+          num_inference_steps: 28,
+          guidance_scale: 3.5,
+        },
+      }),
+    }
+  );
+
+  // If model is loading, Hugging Face returns 503 — we retry after a delay
+  if (response.status === 503) {
+    const errorData = await response.json() as any;
+    const waitTime = errorData?.estimated_time
+      ? Math.ceil(errorData.estimated_time) * 1000
+      : 20000; // default 20 seconds wait
+
+    console.log(`Model is loading, waiting ${waitTime / 1000}s...`);
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+    // Retry once after waiting
+    const retryResponse = await fetch(
+      "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${HF_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            num_inference_steps: 28,
+            guidance_scale: 3.5,
+          },
+        }),
+      }
+    );
+
+    if (!retryResponse.ok) {
+      const errText = await retryResponse.text();
+      throw new Error(`Hugging Face API error after retry: ${errText}`);
+    }
+
+    const arrayBuffer = await retryResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Hugging Face API error: ${errText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+};
+
 export const generateThumbnail = async (req: Request, res: Response) => {
   try {
     const { userId } = req.session;
@@ -63,81 +131,28 @@ export const generateThumbnail = async (req: Request, res: Response) => {
       isGenerating: true,
     });
 
-    const model = "gemini-2.0-flash-exp";
-
-    const generationConfig: GenerateContentConfig = {
-      maxOutputTokens: 32768,
-      temperature: 1,
-      topP: 0.95,
-      responseModalities: ["IMAGE"],
-      imageConfig: {
-        aspectRatio: aspect_ratio || "16:9",
-        imageSize: "1K",
-      },
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.OFF,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.OFF,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.OFF,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.OFF,
-        },
-      ],
-    };
-
-    let prompt = `Create a ${stylePrompts[style as keyof typeof stylePrompts]} for: "${title}"`;
+    // Build the prompt
+    let prompt = `Create a ${stylePrompts[style as keyof typeof stylePrompts]} for: "${title}". `;
 
     if (color_scheme) {
-      prompt += `Use a ${colorSchemeDescriptions[color_scheme as keyof typeof colorSchemeDescriptions]} color scheme.`;
+      prompt += `Use a ${colorSchemeDescriptions[color_scheme as keyof typeof colorSchemeDescriptions]} color scheme. `;
     }
 
     if (user_prompt) {
       prompt += `Additional details: ${user_prompt}. `;
     }
 
-    prompt += `The thumbnail should be ${aspect_ratio}, visually stunning, and designed to maximize click-through rate. Make it bold, professional, and impossible to ignore.`;
+    prompt += `The thumbnail should be visually stunning and designed to maximize click-through rate. Make it bold, professional, and impossible to ignore.`;
 
-    // Generate the image using the ai model
-    const response: any = await ai.models.generateContent({
-      model,
-      contents: [prompt],
-      config: generationConfig,
-    });
+    // Generate the image using Hugging Face (FREE)
+    const imageBuffer = await generateImageWithHuggingFace(prompt);
 
-    // Check if the response is valid
-    if (!response?.candidates?.[0]?.content?.parts) {
-      throw new Error("Unexpected response");
-    }
-
-    const parts = response.candidates[0].content.parts || [];
-
-    let finalBuffer: Buffer | null = null;
-
-    for (const part of parts) {
-      if (part.inlineData?.data) {
-        finalBuffer = Buffer.from(part.inlineData.data, "base64");
-      }
-    }
-
-    if (!finalBuffer) {
-      throw new Error("Failed to generate image");
-    }
-
+    // Upload to Cloudinary
     const uploadResult = await cloudinary.uploader.upload(
-      `data:image/png;base64,${finalBuffer.toString("base64")}`,
+      `data:image/png;base64,${imageBuffer.toString("base64")}`
     );
 
     thumbnail.image_url = uploadResult.secure_url;
-
     thumbnail.isGenerating = false;
     await thumbnail.save();
 
@@ -148,7 +163,7 @@ export const generateThumbnail = async (req: Request, res: Response) => {
   }
 };
 
-// Controllers For Thumbnail Deletion
+// Controller For Thumbnail Deletion
 export const deleteThumbnail = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
