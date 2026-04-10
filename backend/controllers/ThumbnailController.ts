@@ -43,7 +43,7 @@ const generateImageWithHuggingFace = async (prompt: string): Promise<Buffer> => 
 
   // Using FLUX.1-dev — best free image generation model on Hugging Face
   const response = await fetch(
-    "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev",
+    "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-dev",
     {
       method: "POST",
       headers: {
@@ -72,7 +72,7 @@ const generateImageWithHuggingFace = async (prompt: string): Promise<Buffer> => 
 
     // Retry once after waiting
     const retryResponse = await fetch(
-      "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev",
+      "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-dev",
       {
         method: "POST",
         headers: {
