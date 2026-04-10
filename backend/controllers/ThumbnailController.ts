@@ -16,91 +16,25 @@ const stylePrompts = {
 };
 
 const colorSchemeDescriptions = {
-  vibrant:
-    "vibrant and energetic colors, high saturation, bold contrasts, eye-catching palette",
-  sunset:
-    "warm sunset tones, orange pink and purple hues, soft gradients, cinematic glow",
-  forest:
-    "natural green tones, earthy colors, calm and organic palette, fresh atmosphere",
+  vibrant: "vibrant and energetic colors, high saturation, bold contrasts, eye-catching palette",
+  sunset: "warm sunset tones, orange pink and purple hues, soft gradients, cinematic glow",
+  forest: "natural green tones, earthy colors, calm and organic palette, fresh atmosphere",
   neon: "neon glow effects, electric blues and pinks, cyberpunk lighting, high contrast glow",
-  purple:
-    "purple-dominant color palette, magenta and violet tones, modern and stylish mood",
-  monochrome:
-    "black and white color scheme, high contrast, dramatic lighting, timeless aesthetic",
-  ocean:
-    "cool blue and teal tones, aquatic color palette, fresh and clean atmosphere",
-  pastel:
-    "soft pastel colors, low saturation, gentle tones, calm and friendly aesthetic",
+  purple: "purple-dominant color palette, magenta and violet tones, modern and stylish mood",
+  monochrome: "black and white color scheme, high contrast, dramatic lighting, timeless aesthetic",
+  ocean: "cool blue and teal tones, aquatic color palette, fresh and clean atmosphere",
+  pastel: "soft pastel colors, low saturation, gentle tones, calm and friendly aesthetic",
 };
 
-// Hugging Face free image generation function
-const generateImageWithHuggingFace = async (prompt: string): Promise<Buffer> => {
-  const HF_TOKEN = process.env.HF_TOKEN;
+// Pollinations AI — 100% free, no API key, no signup, no billing ever
+const generateImage = async (prompt: string): Promise<Buffer> => {
+  const encodedPrompt = encodeURIComponent(prompt);
+  const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=flux&nologo=true&seed=${Date.now()}`;
 
-  if (!HF_TOKEN) {
-    throw new Error("HF_TOKEN is not set in environment variables");
-  }
-
-  // Using FLUX.1-dev — best free image generation model on Hugging Face
-  const response = await fetch(
-    "https://router.huggingface.co/fal-ai/models/black-forest-labs/FLUX.1-dev",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${HF_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        inputs: prompt,
-        parameters: {
-          num_inference_steps: 28,
-          guidance_scale: 3.5,
-        },
-      }),
-    }
-  );
-
-  // If model is loading, Hugging Face returns 503 — we retry after a delay
-  if (response.status === 503) {
-    const errorData = await response.json() as any;
-    const waitTime = errorData?.estimated_time
-      ? Math.ceil(errorData.estimated_time) * 1000
-      : 20000; // default 20 seconds wait
-
-    console.log(`Model is loading, waiting ${waitTime / 1000}s...`);
-    await new Promise((resolve) => setTimeout(resolve, waitTime));
-
-    // Retry once after waiting
-    const retryResponse = await fetch(
-      "https://router.huggingface.co/fal-ai/models/black-forest-labs/FLUX.1-dev",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${HF_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            num_inference_steps: 28,
-            guidance_scale: 3.5,
-          },
-        }),
-      }
-    );
-
-    if (!retryResponse.ok) {
-      const errText = await retryResponse.text();
-      throw new Error(`Hugging Face API error after retry: ${errText}`);
-    }
-
-    const arrayBuffer = await retryResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  }
+  const response = await fetch(url, { method: "GET" });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Hugging Face API error: ${errText}`);
+    throw new Error(`Image generation failed with status: ${response.status}`);
   }
 
   const arrayBuffer = await response.arrayBuffer();
@@ -144,12 +78,12 @@ export const generateThumbnail = async (req: Request, res: Response) => {
 
     prompt += `The thumbnail should be visually stunning and designed to maximize click-through rate. Make it bold, professional, and impossible to ignore.`;
 
-    // Generate the image using Hugging Face (FREE)
-    const imageBuffer = await generateImageWithHuggingFace(prompt);
+    // Generate image using Pollinations AI (completely free)
+    const imageBuffer = await generateImage(prompt);
 
     // Upload to Cloudinary
     const uploadResult = await cloudinary.uploader.upload(
-      `data:image/png;base64,${imageBuffer.toString("base64")}`
+      `data:image/jpeg;base64,${imageBuffer.toString("base64")}`
     );
 
     thumbnail.image_url = uploadResult.secure_url;
