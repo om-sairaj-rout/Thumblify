@@ -34,12 +34,12 @@ export default function Navbar() {
                             My Generations
                         </Link>
                     ) : (
-                        <Link to='#' className='hover:text-pink-300 transition'>
+                        <Link to='#features' className='hover:text-pink-300 transition'>
                             About
                         </Link>
                     )}
 
-                    <Link to='#' className='hover:text-pink-300 transition'>
+                    <Link to='#contact' className='hover:text-pink-300 transition'>
                         Contact us
                     </Link>
                 </div>
